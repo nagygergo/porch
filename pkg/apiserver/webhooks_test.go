@@ -32,11 +32,12 @@ import (
 
 func TestCreateCerts(t *testing.T) {
 	dir := t.TempDir()
+	ns := "porch-system"
 	defer func() {
 		require.NoError(t, os.RemoveAll(dir))
 	}()
 
-	caCert, err := createCerts(dir)
+	caCert, err := createCerts(dir, ns)
 	require.NoError(t, err)
 
 	caStr := strings.TrimSpace(string(caCert))
