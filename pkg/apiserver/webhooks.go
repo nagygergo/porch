@@ -30,12 +30,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/nephio-project/porch/api/porch/v1alpha1"
 	"github.com/nephio-project/porch/internal/kpt/util/porch"
 	admissionv1 "k8s.io/api/admission/v1"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
+	authenticationV1alpha1 "k8s.io/api/authentication/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -52,11 +54,15 @@ const (
 )
 
 func setupWebhooks(ctx context.Context, certStorageDir string) error {
-	caBytes, err := createCerts(certStorageDir)
+	ns, err := getNamespaceForOwnServiceAccount(ctx)
 	if err != nil {
 		return err
 	}
-	if err := createValidatingWebhook(ctx, caBytes); err != nil {
+	caBytes, err := createCerts(certStorageDir, ns)
+	if err != nil {
+		return err
+	}
+	if err := createValidatingWebhook(ctx, caBytes, ns); err != nil {
 		return err
 	}
 	if err := runWebhookServer(certStorageDir); err != nil {
@@ -65,18 +71,17 @@ func setupWebhooks(ctx context.Context, certStorageDir string) error {
 	return nil
 }
 
-func createCerts(certStorageDir string) ([]byte, error) {
+func createCerts(certStorageDir string, namespace string) ([]byte, error) {
 	klog.Infoln("creating self-signing TLS cert and key ")
-	dnsNames := []string{"api",
-		"api.porch-system", "api.porch-system.svc"}
-	commonName := "api.porch-system.svc"
+	dnsNames := []string{"api", fmt.Sprintf("api.%s", namespace), fmt.Sprintf("api.%s.svc", namespace)}
+	commonName := fmt.Sprintf("api.%s.svc", namespace)
 
 	var caPEM, serverCertPEM, serverPrivateKeyPEM *bytes.Buffer
 	// CA config
 	ca := &x509.Certificate{
 		SerialNumber: big.NewInt(2020),
 		Subject: pkix.Name{
-			Organization: []string{"google.com"},
+			Organization: []string{"nephio.org"},
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().AddDate(1, 0, 0),
@@ -106,7 +111,7 @@ func createCerts(certStorageDir string) ([]byte, error) {
 		SerialNumber: big.NewInt(1658),
 		Subject: pkix.Name{
 			CommonName:   commonName,
-			Organization: []string{"google.com"},
+			Organization: []string{"nephio.org"},
 		},
 		NotBefore:    time.Now(),
 		NotAfter:     time.Now().AddDate(1, 0, 0),
@@ -165,7 +170,7 @@ func WriteFile(filepath string, c []byte) error {
 	return nil
 }
 
-func createValidatingWebhook(ctx context.Context, caCert []byte) error {
+func createValidatingWebhook(ctx context.Context, caCert []byte, namespace string) error {
 	klog.Infoln("Creating validating webhook")
 
 	cfg := ctrl.GetConfigOrDie()
@@ -175,7 +180,7 @@ func createValidatingWebhook(ctx context.Context, caCert []byte) error {
 	}
 
 	var (
-		webhookNamespace  = "porch-system"
+		webhookNamespace  = namespace
 		validationCfgName = "packagerev-deletion-validating-webhook"
 		webhookService    = "api"
 		path              = serverEndpoint
@@ -368,4 +373,26 @@ func writeErr(errMsg string, w *http.ResponseWriter) {
 	if _, err := (*w).Write([]byte(errMsg)); err != nil {
 		klog.Errorf("could not write error message: %v", err)
 	}
+}
+
+func getNamespaceForOwnServiceAccount(ctx context.Context) (string, error) {
+	cfg := ctrl.GetConfigOrDie()
+	svcaccRegexp := regexp.MustCompile(`system:serviceaccount:(?P<namespace>[a-z-\.]+):([a-z-\.]+)`)
+	kubeClient, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return "", fmt.Errorf("failed to setup kubeClient: %v", err)
+	}
+
+	ssr, err := kubeClient.AuthenticationV1alpha1().SelfSubjectReviews().Create(ctx,
+		&authenticationV1alpha1.SelfSubjectReview{}, metav1.CreateOptions{})
+	if err != nil {
+		return "", fmt.Errorf("Failed to create SelfSubjectReview: %v", err)
+	}
+	username := ssr.Status.UserInfo.Username
+
+	if !svcaccRegexp.MatchString(username) {
+		return "", fmt.Errorf("Expected to run with a serviceaccount user. Cannot determine namespace. Found user: %s", username)
+	}
+	nsIndex := svcaccRegexp.SubexpIndex("namespace")
+	return svcaccRegexp.FindStringSubmatch(username)[nsIndex], nil
 }
