@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/kustomize/kyaml/yaml"
 )
 
-//go:generate go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.14.0 object:headerFile="../../../../porch/scripts/boilerplate.go.txt"
+//go:generate go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.14.0 object:headerFile="../../../../../scripts/boilerplate.go.txt"
 
 const (
 	KptFileName = "Kptfile"
@@ -239,26 +239,27 @@ type Subpackage struct {
 }
 
 // Pipeline declares a pipeline of functions used to mutate or validate resources.
+//
+//	Sources defines the source packages to resolve as input to the pipeline. Possible values:
+//	a) A slash-separated, OS-agnostic relative package path which may include '.' and '..' e.g. './base', '../foo'
+//	   The source package is resolved recursively.
+//	b) Resources in this package using '.'. Meta resources such as the Kptfile, Pipeline, and function configs
+//	   are excluded.
+//	c) Resources in this package AND all resolved subpackages using './*'
+//
+// Resultant list of resources are ordered:
+// - According to the order of sources specified in this array.
+// - When using './*': Subpackages are resolved in alphanumerical order before package resources.
+//
+// When omitted, defaults to './*'.
+// Sources []string `yaml:"sources,omitempty"`
+//
+// Following fields define the sequence of functions in the pipeline.
+// Input of the first function is the resolved sources.
+// Input of the second function is the output of the first function, and so on.
+// Order of operation: mutators, validators
 // +kubebuilder:object:generate=true
 type Pipeline struct {
-	//  Sources defines the source packages to resolve as input to the pipeline. Possible values:
-	//  a) A slash-separated, OS-agnostic relative package path which may include '.' and '..' e.g. './base', '../foo'
-	//     The source package is resolved recursively.
-	//  b) Resources in this package using '.'. Meta resources such as the Kptfile, Pipeline, and function configs
-	//     are excluded.
-	//  c) Resources in this package AND all resolved subpackages using './*'
-	//
-	// Resultant list of resources are ordered:
-	// - According to the order of sources specified in this array.
-	// - When using './*': Subpackages are resolved in alphanumerical order before package resources.
-	//
-	// When omitted, defaults to './*'.
-	// Sources []string `yaml:"sources,omitempty"`
-
-	// Following fields define the sequence of functions in the pipeline.
-	// Input of the first function is the resolved sources.
-	// Input of the second function is the output of the first function, and so on.
-	// Order of operation: mutators, validators
 
 	// Mutators defines a list of of KRM functions that mutate resources.
 	Mutators []Function `yaml:"mutators,omitempty" json:"mutators,omitempty"`
