@@ -27,7 +27,6 @@ import (
 type PorchV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	FunctionsGetter
-	PackagesGetter
 	PackageRevisionsGetter
 	PackageRevisionResourcesGetter
 }
@@ -39,10 +38,6 @@ type PorchV1alpha1Client struct {
 
 func (c *PorchV1alpha1Client) Functions(namespace string) FunctionInterface {
 	return newFunctions(c, namespace)
-}
-
-func (c *PorchV1alpha1Client) Packages(namespace string) PackageInterface {
-	return newPackages(c, namespace)
 }
 
 func (c *PorchV1alpha1Client) PackageRevisions(namespace string) PackageRevisionInterface {
